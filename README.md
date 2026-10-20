@@ -12,25 +12,25 @@ All screenshots below are taken from a real DeepPen-X runtime.
 
 ### Overview
 
-![image-20261020202026059](docs/screenshots/image-20261020202026059.png)
+![image-20261020222034576](docs/screenshots/image-20261020222034576.png)
 
 #### Asset Management
 
-![image-20261020202150878](docs/screenshots/image-20261020202150878.png)
+![image-20261020222216377](docs/screenshots/image-20261020222216377.png)
 
 ### System Security Scan
 
-![image-20261020194927178](docs/screenshots/image-20261020194927178.png)
+![image-20261020222337659](docs/screenshots/image-20261020222337659.png)
 
 ### APP Scan with File-Level AI Review
 
-![image-20261020194659362](docs/screenshots/image-20261020194659362.png)
+![image-20261020222446972](docs/screenshots/image-20261020222446972.png)
 
 ### Dynamic Verification Session
 
-![image-20261020195239571](docs/screenshots/image-20261020195239571.png)
+![image-20261020222601128](docs/screenshots/image-20261020222601128.png)
 
-![image-20261020195137654](docs/screenshots/image-20261020195137654.png)
+![image-20261020222822538](docs/screenshots/image-20261020222822538.png)
 
 ## Platform Capabilities
 
@@ -64,19 +64,19 @@ Scoped vulnerability verification runs as a Planner / Executor / Evidence Judge 
 Example project root:
 
 ```text
-fs-sensitive-ai-platform
+DeepPen-X
 ```
 
 Enter the directory on macOS/Linux:
 
 ```bash
-cd /path/to/fs-sensitive-ai-platform
+cd /path/to/DeepPen-X
 ```
 
 Enter the directory on Windows PowerShell:
 
 ```powershell
-cd D:\path\to\fs-sensitive-ai-platform
+cd D:\path\to\DeepPen-X
 ```
 
 ## Requirements
