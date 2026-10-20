@@ -6,53 +6,25 @@ DeepPen-X（Vehicle AI Security Test Platform）是一套本地部署的车载�
 
 本文档同时覆盖 macOS/Linux 和 Windows。所有命令都在项目根目录执行，除非单独说明。
 
-## 平台能力总览
-### 动态验证会话 Timeline（计划 / 工具 / 裁决节点）
+## 功能截图
 
-（此处插入截图：动态验证会话 Timeline V2 全览）
+以下截图均来自 DeepPen-X 动态验证真实运行时的界面
 
-<!-- ![动态验证会话 Timeline](docs/screenshots/dynamic-timeline.png) -->
+### 动态验证会话 
 
-### Planner 版本化攻击计划
+![image-20261020195239571](docs/screenshots/image-20261020195239571.png)
 
-（此处插入截图：Planner 生成的假设、证明义务、预期可观测与停止条件）
+![image-20261020195137654](docs/screenshots/image-20261020195137654.png)
 
-<!-- ![Planner 攻击计划](docs/screenshots/planner-plan.png) -->
+### 系统安全扫描
 
-### Executor 工具执行与 ToolRun 账本
-
-（此处插入截图：Executor 经 ADB/SSH 对台架设备执行攻击动作及证据采集）
-
-<!-- ![Executor 工具执行](docs/screenshots/executor-toolrun.png) -->
-
-### Evidence Judge 独立裁决
-
-（此处插入截图：Judge 对候选结论的裁决与定向补证指令）
-
-<!-- ![Evidence Judge 裁决](docs/screenshots/judge-ruling.png) -->
-
-### 断点恢复与事务化续跑
-
-（此处插入截图：进程中断后的 unknown_side_effect 处理与恢复续跑）
-
-<!-- ![事务化恢复](docs/screenshots/transactional-recovery.png) -->
-
-### 漏洞回写与证据链
-
-（此处插入截图：accepted 发现回写漏洞管理及完整证据链）
-
-<!-- ![漏洞回写](docs/screenshots/discovery-writeback.png) -->
-
-### 系统安全扫描与 23 类安全域攻击面
-
-（此处插入截图：系统扫描攻击面覆盖 / 攻击图）
-
-<!-- ![攻击面覆盖](docs/screenshots/attack-surface.png) -->
+![image-20261020194927178](docs/screenshots/image-20261020194927178.png)
 
 ### APP 扫描与逐文件 AI 复核
 
-![Uploading image.png…]()
+![image-20261020194659362](docs/screenshots/image-20261020194659362.png)
 
+## 平台能力总览
 
 ### 三个平面：侦察 / 渗透 / 裁决
 
@@ -79,9 +51,7 @@ DeepPen-X 围绕一条原则构建严格分工：
 
 限定漏洞验证按 Planner / Executor / Evidence Judge 三角色工单流程执行，自由探索保持独立对话入口。同一设备任务串行、不同设备并行，无设备自由对话使用独立队列；所有角色共享进程级和用户级 AI 并发预算。Agent Teams v2 对新建 Cycle 默认启用持久化专家队列。
 
-## 功能截图
-
-
+## 
 
 ## 目录
 
