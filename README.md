@@ -7,35 +7,6 @@ DeepPen-X（Vehicle AI Security Test Platform）是一套本地部署的车载�
 本文档同时覆盖 macOS/Linux 和 Windows。所有命令都在项目根目录执行，除非单独说明。
 
 ## 平台能力总览
-
-### 三个平面：侦察 / 渗透 / 裁决
-
-DeepPen-X 围绕一条原则构建严格分工：
-
-- **确定性攻击面侦察（Recon）**：系统安全扫描、APP 扫描与二进制深度分析共同完成固件与 companion APP 的攻击面建模。攻击面按 23 类安全域注册表组织（引导信任链、凭据、OTA 完整性、UDS/DoIP/SOME-IP 协议栈、平台安全、无线等），保证没有安全域被静默挤掉。离线规则只负责提名候选；每个候选经三态 AI 复核（`confirmed` / `not_a_vulnerability` / `needs_more_context`）过滤可利用性闸门；存活事实以绑定产物 SHA-256、附带显式 `confirm_requires` 确认清单的渗透假设形式产出。
-- **多 Agent 自主渗透（Penetration）**：动态验证是一个持久化的循环状态机，而不是一次性模型循环。Planner（无工具权限）输出不可变版本化攻击计划，包含假设、证明义务、替代路线、预期可观测现象和停止条件；Executor 是唯一持有工具的角色（ADB、SSH、串口、Frida、宿主命令、工作区文件），负责执行计划、回放凭据、驱动诊断会话、探测 IPC 面，并在设备暴露新信息时超出计划探索；一次渗透活动可绑定多个发现，并支持将多个孤立中危弱点组合为一条高危攻击链结论。
-- **独立证据裁决（Adjudication）**：Evidence Judge 依据原始工具结果对每一个"已发现"声明独立裁决，路由只有四种：`accepted` / `repair_required`（定向补证）/ `replan_required` / `blocked`（人工介入）。按设计，`inconclusive` 不是可接受的结论。被接受的发现事务化回写漏洞管理，完整证据链（攻击计划、ToolRun 账本、Judge 裁决）随结论保留，可审计、可回放。
-
-### 24 小时自主运行的事务化可靠性
-
-平台以数据库事务的严谨性对待 Agent 行为：
-
-- 每个攻击动作在执行前写入 ToolRun 账本；崩溃恢复按副作用类别（`read_only` / `idempotent_write` / `non_idempotent_write`）处理，写操作中途中断会标记 `unknown_side_effect`——禁止自动重放，升级 Judge 与人工对账。
-- 双层记忆模型：权威状态由数据库事件重新生成，非权威工作记忆按 85%–95% 渐进压缩，内容寻址 blob 保存原始证据，压缩边界可校验，Compactor 带熔断，并支持手动 Compact/Snip。
-- 自动上下文压缩后为任务持久化 Workspace Resume Checkpoint（记录接触过的文件路径、SHA-256、大小、计划版本、最近 ToolRun 与压缩边界）；续写必须经过 `workspace_status` 对比、重读、`expected_sha256` 校验，状态不符返回 `stale_file_state`，文本写入使用临时文件 + `fsync` + 原子替换。
-- 支持 24 小时活跃周期、设备断线自动恢复、审批与工具事务恢复、同一任务多 cycle 续跑。
-
-### 动态验证会话（Timeline V2）
-
-动态会话只提供 Timeline V2，以类型化节点展示对话、计划、工具、审批、证据复核、裁决、公开状态和错误。原始诊断保留在后端审计数据中；对话与过程正文按清洗后的 GitHub Flavored Markdown 渲染；失败工具展示经凭据脱敏、长度受限的真实错误原因。升级已有数据库需先执行幂等迁移和只读检查（见下文"Dynamic Timeline V2 部署门禁"）。
-
-### 多 Agent 协作与并发调度
-
-限定漏洞验证按 Planner / Executor / Evidence Judge 三角色工单流程执行，自由探索保持独立对话入口。同一设备任务串行、不同设备并行，无设备自由对话使用独立队列；所有角色共享进程级和用户级 AI 并发预算。Agent Teams v2 对新建 Cycle 默认启用持久化专家队列。
-
-## 功能截图
-
-
 ### 动态验证会话 Timeline（计划 / 工具 / 裁决节点）
 
 （此处插入截图：动态验证会话 Timeline V2 全览）
@@ -83,6 +54,36 @@ DeepPen-X 围绕一条原则构建严格分工：
 （此处插入截图：APP 扫描三态 AI 复核与证据定位）
 
 <!-- ![APP 扫描](docs/screenshots/app-scan.png) -->
+
+
+### 三个平面：侦察 / 渗透 / 裁决
+
+DeepPen-X 围绕一条原则构建严格分工：
+
+- **确定性攻击面侦察（Recon）**：系统安全扫描、APP 扫描与二进制深度分析共同完成固件与 companion APP 的攻击面建模。攻击面按 23 类安全域注册表组织（引导信任链、凭据、OTA 完整性、UDS/DoIP/SOME-IP 协议栈、平台安全、无线等），保证没有安全域被静默挤掉。离线规则只负责提名候选；每个候选经三态 AI 复核（`confirmed` / `not_a_vulnerability` / `needs_more_context`）过滤可利用性闸门；存活事实以绑定产物 SHA-256、附带显式 `confirm_requires` 确认清单的渗透假设形式产出。
+- **多 Agent 自主渗透（Penetration）**：动态验证是一个持久化的循环状态机，而不是一次性模型循环。Planner（无工具权限）输出不可变版本化攻击计划，包含假设、证明义务、替代路线、预期可观测现象和停止条件；Executor 是唯一持有工具的角色（ADB、SSH、串口、Frida、宿主命令、工作区文件），负责执行计划、回放凭据、驱动诊断会话、探测 IPC 面，并在设备暴露新信息时超出计划探索；一次渗透活动可绑定多个发现，并支持将多个孤立中危弱点组合为一条高危攻击链结论。
+- **独立证据裁决（Adjudication）**：Evidence Judge 依据原始工具结果对每一个"已发现"声明独立裁决，路由只有四种：`accepted` / `repair_required`（定向补证）/ `replan_required` / `blocked`（人工介入）。按设计，`inconclusive` 不是可接受的结论。被接受的发现事务化回写漏洞管理，完整证据链（攻击计划、ToolRun 账本、Judge 裁决）随结论保留，可审计、可回放。
+
+### 24 小时自主运行的事务化可靠性
+
+平台以数据库事务的严谨性对待 Agent 行为：
+
+- 每个攻击动作在执行前写入 ToolRun 账本；崩溃恢复按副作用类别（`read_only` / `idempotent_write` / `non_idempotent_write`）处理，写操作中途中断会标记 `unknown_side_effect`——禁止自动重放，升级 Judge 与人工对账。
+- 双层记忆模型：权威状态由数据库事件重新生成，非权威工作记忆按 85%–95% 渐进压缩，内容寻址 blob 保存原始证据，压缩边界可校验，Compactor 带熔断，并支持手动 Compact/Snip。
+- 自动上下文压缩后为任务持久化 Workspace Resume Checkpoint（记录接触过的文件路径、SHA-256、大小、计划版本、最近 ToolRun 与压缩边界）；续写必须经过 `workspace_status` 对比、重读、`expected_sha256` 校验，状态不符返回 `stale_file_state`，文本写入使用临时文件 + `fsync` + 原子替换。
+- 支持 24 小时活跃周期、设备断线自动恢复、审批与工具事务恢复、同一任务多 cycle 续跑。
+
+### 动态验证会话（Timeline V2）
+
+动态会话只提供 Timeline V2，以类型化节点展示对话、计划、工具、审批、证据复核、裁决、公开状态和错误。原始诊断保留在后端审计数据中；对话与过程正文按清洗后的 GitHub Flavored Markdown 渲染；失败工具展示经凭据脱敏、长度受限的真实错误原因。升级已有数据库需先执行幂等迁移和只读检查（见下文"Dynamic Timeline V2 部署门禁"）。
+
+### 多 Agent 协作与并发调度
+
+限定漏洞验证按 Planner / Executor / Evidence Judge 三角色工单流程执行，自由探索保持独立对话入口。同一设备任务串行、不同设备并行，无设备自由对话使用独立队列；所有角色共享进程级和用户级 AI 并发预算。Agent Teams v2 对新建 Cycle 默认启用持久化专家队列。
+
+## 功能截图
+
+
 
 ## 目录
 
