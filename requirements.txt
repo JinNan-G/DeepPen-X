@@ -1,0 +1,25 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+pydantic==2.10.4
+pydantic-settings==2.7.0
+PyYAML==6.0.2
+PyJWT==2.10.1
+python-dotenv==1.0.1
+cryptography==44.0.0
+openai==1.59.6
+httpx==0.28.1
+Jinja2==3.1.5
+Markdown==3.7
+python-docx==1.1.2
+reportlab==4.2.5
+aiofiles==24.1.0
+python-multipart==0.0.20
+pytest==8.3.4
+# Optional. scanner.binary works fully without it: the in-tree decoders supply
+# every semantic fact (call targets, recovered arguments, resolved constants)
+# and are validated against objdump in tests/test_binary_analysis.py. Install
+# capstone only for richer mnemonic text in the disassembly slices shown to
+# the model:
+#   pip install capstone
+pytest-asyncio==0.25.2
