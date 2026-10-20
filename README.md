@@ -1,87 +1,93 @@
 # DeepPen-X
 
-DeepPen-X（Vehicle AI Security Test Platform）是一套本地部署的车载系统安全与 APP 安全分析平台，围绕自主渗透测试重建车联网安全边界：确定性分析负责刻画攻击面，多 Agent 团队负责自主渗透，独立证据裁决决定什么才算一个被发现的漏洞——每一条结论都附带可审计、可回放、SHA-256 锚定的证据。
+DeepPen-X (Vehicle AI Security Test Platform) is a locally deployed security analysis platform for in-vehicle systems and companion apps. It rebuilds the IoV security boundary around autonomous penetration testing: deterministic analysis maps the attack surface, a multi-Agent team penetrates it autonomously, and an independent evidence adjudicator decides what actually counts as a discovered vulnerability — every conclusion ships with auditable, replayable, SHA-256-anchored evidence.
 
-平台默认后端运行在 `127.0.0.1:8000`，前端运行在 `127.0.0.1:5173`，数据库使用本地 SQLite。
+By default the backend runs on `127.0.0.1:8000`, the frontend on `127.0.0.1:5173`, and the database is a local SQLite file.
 
-本文档同时覆盖 macOS/Linux 和 Windows。所有命令都在项目根目录执行，除非单独说明。
+This document covers both macOS/Linux and Windows. Unless stated otherwise, all commands run from the project root.
 
-## 功能截图
+## Screenshots
 
-以下截图均来自 DeepPen-X 动态验证真实运行时的界面
+All screenshots below are taken from a real DeepPen-X runtime.
 
-### 动态验证会话 
+### Overview
+
+![image-20261020202026059](docs/screenshots/image-20261020202026059.png)
+
+#### Asset Management
+
+![image-20261020202150878](docs/screenshots/image-20261020202150878.png)
+
+### System Security Scan
+
+![image-20261020194927178](docs/screenshots/image-20261020194927178.png)
+
+### APP Scan with File-Level AI Review
+
+![image-20261020194659362](docs/screenshots/image-20261020194659362.png)
+
+### Dynamic Verification Session
 
 ![image-20261020195239571](docs/screenshots/image-20261020195239571.png)
 
 ![image-20261020195137654](docs/screenshots/image-20261020195137654.png)
 
-### 系统安全扫描
+## Platform Capabilities
 
-![image-20261020194927178](docs/screenshots/image-20261020194927178.png)
+### Three Planes: Recon / Penetration / Adjudication
 
-### APP 扫描与逐文件 AI 复核
+DeepPen-X enforces a strict division of labor around one principle:
 
-![image-20261020194659362](docs/screenshots/image-20261020194659362.png)
+- **Deterministic attack-surface recon (Recon)**: system security scanning, APP scanning, and binary deep analysis jointly model the attack surface of firmware and companion apps. The attack surface is organized by a 23-domain security registry (boot trust chain, credentials, OTA integrity, UDS/DoIP/SOME-IP stacks, platform security, wireless, and more), so no security domain is silently crowded out. Offline rules only nominate candidates; every candidate passes a three-state AI review (`confirmed` / `not_a_vulnerability` / `needs_more_context`) through exploitability gates; each surviving fact is emitted as a penetration hypothesis anchored to the artifact SHA-256 with an explicit `confirm_requires` checklist.
+- **Multi-agent autonomous penetration (Penetration)**: dynamic verification is a persistent cycle state machine, not a one-shot model loop. The Planner (no tool permissions) emits immutable, versioned attack plans containing hypotheses, proof obligations, alternative routes, expected observables, and stop conditions. The Executor — the only role holding tools (ADB, SSH, serial, Frida, host commands, workspace files) — carries out the plans, replays credentials, drives diagnostic sessions, exercises IPC surfaces, and explores beyond the plan when the device reveals something new. A single campaign may bind multiple findings and supports composing several isolated medium weaknesses into one high-severity attack chain.
+- **Independent evidence adjudication (Adjudication)**: the Evidence Judge rules on every claimed discovery against raw tool results. There are only four routes: `accepted` / `repair_required` (targeted evidence repair) / `replan_required` / `blocked` (manual intervention). By design, `inconclusive` is not an acceptable outcome. Accepted findings are written back to vulnerability management transactionally, with the complete evidence trail (attack plans, ToolRun ledger, Judge rulings) preserved alongside the conclusion for audit and replay.
 
-## 平台能力总览
+### Transactional Reliability for 24-Hour Autonomous Operation
 
-### 三个平面：侦察 / 渗透 / 裁决
+The platform treats agent behavior with database-transaction rigor:
 
-DeepPen-X 围绕一条原则构建严格分工：
+- Every attack action is journaled to the ToolRun ledger before execution. Crash recovery proceeds by side-effect class (`read_only` / `idempotent_write` / `non_idempotent_write`); a write interrupted mid-flight is marked `unknown_side_effect` — automatic replay is forbidden and the case escalates to the Judge and human reconciliation.
+- Two-layer memory model: authoritative state is regenerated from database events; non-authoritative working memory is progressively compacted at 85%–95% thresholds, with content-addressed blobs preserving raw evidence, verifiable compaction boundaries, a Compactor circuit breaker, and manual Compact/Snip.
+- After automatic context compaction, the platform persists a Workspace Resume Checkpoint for the task (file paths, SHA-256, sizes, plan version, latest ToolRun, and the compaction boundary). Continuation writes must pass `workspace_status` comparison, re-reads, and `expected_sha256` checks; text writes use a temp file + `fsync` + atomic rename.
+- Supports 24-hour active cycles, automatic device disconnect recovery, approval and tool-transaction recovery, and multi-cycle continuation of the same task.
 
-- **确定性攻击面侦察（Recon）**：系统安全扫描、APP 扫描与二进制深度分析共同完成固件与 companion APP 的攻击面建模。攻击面按 23 类安全域注册表组织（引导信任链、凭据、OTA 完整性、UDS/DoIP/SOME-IP 协议栈、平台安全、无线等），保证没有安全域被静默挤掉。离线规则只负责提名候选；每个候选经三态 AI 复核（`confirmed` / `not_a_vulnerability` / `needs_more_context`）过滤可利用性闸门；存活事实以绑定产物 SHA-256、附带显式 `confirm_requires` 确认清单的渗透假设形式产出。
-- **多 Agent 自主渗透（Penetration）**：动态验证是一个持久化的循环状态机，而不是一次性模型循环。Planner（无工具权限）输出不可变版本化攻击计划，包含假设、证明义务、替代路线、预期可观测现象和停止条件；Executor 是唯一持有工具的角色（ADB、SSH、串口、Frida、宿主命令、工作区文件），负责执行计划、回放凭据、驱动诊断会话、探测 IPC 面，并在设备暴露新信息时超出计划探索；一次渗透活动可绑定多个发现，并支持将多个孤立中危弱点组合为一条高危攻击链结论。
-- **独立证据裁决（Adjudication）**：Evidence Judge 依据原始工具结果对每一个"已发现"声明独立裁决，路由只有四种：`accepted` / `repair_required`（定向补证）/ `replan_required` / `blocked`（人工介入）。按设计，`inconclusive` 不是可接受的结论。被接受的发现事务化回写漏洞管理，完整证据链（攻击计划、ToolRun 账本、Judge 裁决）随结论保留，可审计、可回放。
+### Dynamic Verification Sessions (Timeline V2)
 
-### 24 小时自主运行的事务化可靠性
+Dynamic sessions are served exclusively as Timeline V2: typed nodes render conversations, plans, tools, approvals, evidence reviews, rulings, public status, and errors. Raw diagnostics stay in backend audit data; conversation and process text render as sanitized GitHub Flavored Markdown; failed tools show the real, credential-redacted, length-capped error. Upgrading an existing database requires an idempotent migration plus a read-only check first (see "Dynamic Timeline V2 Deployment Gate" below).
 
-平台以数据库事务的严谨性对待 Agent 行为：
+### Multi-Agent Collaboration and Concurrency Scheduling
 
-- 每个攻击动作在执行前写入 ToolRun 账本；崩溃恢复按副作用类别（`read_only` / `idempotent_write` / `non_idempotent_write`）处理，写操作中途中断会标记 `unknown_side_effect`——禁止自动重放，升级 Judge 与人工对账。
-- 双层记忆模型：权威状态由数据库事件重新生成，非权威工作记忆按 85%–95% 渐进压缩，内容寻址 blob 保存原始证据，压缩边界可校验，Compactor 带熔断，并支持手动 Compact/Snip。
-- 自动上下文压缩后为任务持久化 Workspace Resume Checkpoint（记录接触过的文件路径、SHA-256、大小、计划版本、最近 ToolRun 与压缩边界）；续写必须经过 `workspace_status` 对比、重读、`expected_sha256` 校验，状态不符返回 `stale_file_state`，文本写入使用临时文件 + `fsync` + 原子替换。
-- 支持 24 小时活跃周期、设备断线自动恢复、审批与工具事务恢复、同一任务多 cycle 续跑。
+Scoped vulnerability verification runs as a Planner / Executor / Evidence Judge three-role work-order flow, while free exploration keeps an independent conversation entry. Tasks on the same device are serialized; different devices run in parallel; device-free conversations use a dedicated queue. All roles share process-level and per-user AI concurrency budgets. Agent Teams v2 enables persistent expert queues by default for newly created cycles.
 
-### 动态验证会话（Timeline V2）
+## Repository Layout
 
-动态会话只提供 Timeline V2，以类型化节点展示对话、计划、工具、审批、证据复核、裁决、公开状态和错误。原始诊断保留在后端审计数据中；对话与过程正文按清洗后的 GitHub Flavored Markdown 渲染；失败工具展示经凭据脱敏、长度受限的真实错误原因。升级已有数据库需先执行幂等迁移和只读检查（见下文"Dynamic Timeline V2 部署门禁"）。
-
-### 多 Agent 协作与并发调度
-
-限定漏洞验证按 Planner / Executor / Evidence Judge 三角色工单流程执行，自由探索保持独立对话入口。同一设备任务串行、不同设备并行，无设备自由对话使用独立队列；所有角色共享进程级和用户级 AI 并发预算。Agent Teams v2 对新建 Cycle 默认启用持久化专家队列。
-
-## 
-
-## 目录
-
-项目根目录示例：
+Example project root:
 
 ```text
 fs-sensitive-ai-platform
 ```
 
-macOS/Linux 进入目录：
+Enter the directory on macOS/Linux:
 
 ```bash
 cd /path/to/fs-sensitive-ai-platform
 ```
 
-Windows PowerShell 进入目录：
+Enter the directory on Windows PowerShell:
 
 ```powershell
 cd D:\path\to\fs-sensitive-ai-platform
 ```
 
-## 依赖要求
+## Requirements
 
-- Python 3.11 或更新版本
-- Node.js 20 或更新版本
+- Python 3.11 or newer
+- Node.js 20 or newer
 - npm
-- APP 扫描需要本机可执行的 `apktool`、`jadx`、`zip/unzip` 等工具；未安装时平台会提示工具缺失
-- 动态验证与设备侧渗透依赖本机 `adb`、`ssh`、`sftp`，可选依赖串口工具和 Frida
+- APP scanning requires locally executable tools such as `apktool`, `jadx`, and `zip/unzip`; the platform reports missing tools when they are absent
+- Dynamic verification and device-side penetration rely on local `adb`, `ssh`, and `sftp`; serial tools and Frida are optional dependencies
 
-## 首次初始化
+## First-Time Setup
 
 ### macOS/Linux
 
@@ -95,7 +101,7 @@ npm install
 cd ..
 ```
 
-创建 `.env.local`：
+Create `.env.local`:
 
 ```bash
 cat > .env.local <<'EOF'
@@ -107,7 +113,7 @@ LOCAL_AI_API_KEY=replace-with-local-ai-key
 EOF
 ```
 
-初始化数据库：
+Initialize the database:
 
 ```bash
 source .venv/bin/activate
@@ -116,13 +122,13 @@ python scripts/init_db.py
 
 ### Windows PowerShell
 
-如果 PowerShell 不允许激活虚拟环境，可先在当前窗口临时放开执行策略：
+If PowerShell blocks virtual-environment activation, temporarily relax the execution policy in the current window:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-创建虚拟环境并安装依赖：
+Create the virtual environment and install dependencies:
 
 ```powershell
 py -3 -m venv .venv
@@ -134,7 +140,7 @@ npm install
 cd ..
 ```
 
-创建 `.env.local`：
+Create `.env.local`:
 
 ```powershell
 @'
@@ -146,49 +152,49 @@ LOCAL_AI_API_KEY=replace-with-local-ai-key
 '@ | Set-Content -Encoding UTF8 .env.local
 ```
 
-初始化数据库：
+Initialize the database:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python scripts\init_db.py
 ```
 
-`.env.local` 已加入 `.gitignore`，不要提交到代码仓库。
+`.env.local` is listed in `.gitignore`; do not commit it.
 
-### Dynamic Timeline V2 部署门禁
+### Dynamic Timeline V2 Deployment Gate
 
-动态会话只提供 Timeline V2。升级已有数据库时，先备份主数据库，再执行一次幂等迁移和只读检查；`check` 失败时后端会拒绝启动，不能跳过门禁部署：
+Dynamic sessions are served exclusively as Timeline V2. When upgrading an existing database, back up the primary database first, then run a one-time idempotent migration followed by a read-only check. If `check` fails, the backend refuses to start — the gate cannot be skipped for deployment:
 
 ```bash
 .venv/bin/python -m dynamic_verify.timeline_migrate apply
 .venv/bin/python -m dynamic_verify.timeline_migrate check
 ```
 
-Windows PowerShell 使用：
+On Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe -m dynamic_verify.timeline_migrate apply
 .\.venv\Scripts\python.exe -m dynamic_verify.timeline_migrate check
 ```
 
-迁移按任务独立事务执行，可安全重跑；原始 `dynamic_verify_step` 审计记录不会被改写。Timeline 通过类型化节点展示对话、计划、工具、审批、证据复核、裁决、公开状态和错误；原始诊断只保留在后端审计数据中，不向会话页面预加载。对话及过程正文统一按经过清洗的 GitHub Flavored Markdown 渲染；若 Provider 把 DSML 工具协议错误地放进文本字段，后端会恢复为真实工具调用，历史内容在重投影时转换为可读 Markdown。失败工具直接展示经过凭据脱敏、长度受限的实际错误原因，管理员占位文案和内部错误类型均不进入公共载荷；失败流中只有"接下来执行"等承诺而没有结果的短暂进度片段不会进入公开 Timeline。目标契约、验收账本、运行时错误控制和重试状态仅属于后端编排数据，不出现在普通任务响应或页面中。迁移检查会阻止包含上述占位文案、内部错误类型、原始 DSML 或无效失败进度的投影通过部署门禁。旧 `/steps`、`/transcript` 和 `/ws/dynamic/{task_id}` 不再提供服务。
+The migration runs in per-task independent transactions and is safe to rerun; the original `dynamic_verify_step` audit records are never rewritten. Timeline renders conversations, plans, tools, approvals, evidence reviews, rulings, public status, and errors as typed nodes; raw diagnostics remain only in backend audit data and are never preloaded into session pages. Conversation and process text is rendered uniformly as sanitized GitHub Flavored Markdown; if a provider mistakenly places the DSML tool protocol into a text field, the backend restores it as a real tool call, and historical content is converted to readable Markdown during reprojection. Failed tools display the actual error reason, credential-redacted and length-capped; admin placeholder copy and internal error types never enter the public payload, and transient progress fragments in a failed flow that promise "next steps" without results never enter the public Timeline. Goal contracts, acceptance ledgers, runtime error control, and retry state are backend orchestration data only and never appear in ordinary task responses or pages. The migration check blocks any projection containing such placeholder copy, internal error types, raw DSML, or invalid failed progress from passing the deployment gate. The legacy `/steps`, `/transcript`, and `/ws/dynamic/{task_id}` endpoints are no longer served.
 
-动态验证的"完全访问权限"（`autonomous`）会直接执行宿主和设备命令：`adb_shell` 不使用只读命令白名单，也不会拒绝 `getenforce`、`uname`、管道、命令拼接或设备写命令；`host_exec`、`device_exec` 同样不经过命令黑名单、目标包检查或人工审批。较低权限仍会返回审批请求而不是伪装成命令执行失败。任意 ADB shell 均按非幂等操作串行记录，避免断线恢复时自动重放可能产生副作用的命令。
+The "full access" (`autonomous`) permission of dynamic verification executes host and device commands directly: `adb_shell` no longer uses a read-only command whitelist and does not reject `getenforce`, `uname`, pipes, command chaining, or device write commands; `host_exec` and `device_exec` likewise bypass command blacklists, target-package checks, and manual approval. Lower permission levels still return approval requests instead of masquerading as command failures. Every ADB shell is recorded serially as a non-idempotent operation, so disconnect recovery never auto-replays commands that may have side effects.
 
-## 前台启动
+## Foreground Start
 
-适合开发调试，终端关闭后服务也会停止。
+Suitable for development and debugging; services stop when the terminals close.
 
 ### macOS/Linux
 
-启动后端：
+Start the backend:
 
 ```bash
 source .venv/bin/activate
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-启动前端，另开一个终端：
+Start the frontend in a second terminal:
 
 ```bash
 cd frontend
@@ -197,33 +203,33 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ### Windows PowerShell
 
-启动后端：
+Start the backend:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-启动前端，另开一个 PowerShell：
+Start the frontend in a second PowerShell window:
 
 ```powershell
 cd frontend
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-浏览器访问：
+Open in a browser:
 
 ```text
 http://127.0.0.1:5173
 ```
 
-后端接口文档：
+Backend API documentation:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-## 后台启动
+## Background Start
 
 ### macOS/Linux
 
@@ -256,7 +262,7 @@ Start-Process -FilePath "npm.cmd" `
   -WindowStyle Hidden
 ```
 
-## 查看服务状态
+## Checking Service Status
 
 ### macOS/Linux
 
@@ -276,7 +282,7 @@ Get-Content logs\backend.log -Tail 80
 Get-Content logs\frontend.log -Tail 80
 ```
 
-## 停止服务
+## Stopping Services
 
 ### macOS/Linux
 
@@ -288,7 +294,7 @@ FRONTEND_PID=$(lsof -tiTCP:5173 -sTCP:LISTEN)
 [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID"
 ```
 
-如果进程没有退出，可把 `kill` 换成 `kill -9`。
+If a process does not exit, replace `kill` with `kill -9`.
 
 ### Windows PowerShell
 
@@ -300,12 +306,9 @@ $frontend = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction Sile
 if ($frontend) { Stop-Process -Id $frontend.OwningProcess -Force }
 ```
 
-## 重启服务
+## Restarting Services
 
-更新代码后必须同时重启前、后端。这里的 `uvicorn` 默认没有启用
-`--reload`；如果 8000 端口仍由旧进程占用，新前端会连接到旧后端，典型现象是
-动态测试会话无法加载、Timeline 接口返回 404，或模型配置提交返回 422。不要只刷新
-浏览器或只重启前端。
+After updating the code, restart both the frontend and the backend. `uvicorn` here does not enable `--reload`; if port 8000 is still held by an old process, the new frontend will talk to the old backend — typical symptoms are dynamic test sessions failing to load, the Timeline API returning 404, or model configuration submission returning 422. Do not just refresh the browser or restart only the frontend.
 
 ### macOS/Linux
 
@@ -352,178 +355,159 @@ Start-Process -FilePath "npm.cmd" `
   -WindowStyle Hidden
 ```
 
-重启后可确认当前后端已经提供动态会话接口：
+After restarting, confirm the backend already serves the dynamic session API:
 
 ```bash
 curl -fsS http://127.0.0.1:8000/openapi.json | python -c "import json,sys; p=json.load(sys.stdin)['paths']; assert '/api/dynamic/tasks/{task_id}/timeline' in p; print('Dynamic Timeline V2 ready')"
 ```
 
-Windows PowerShell：
+Windows PowerShell:
 
 ```powershell
 (Invoke-RestMethod http://127.0.0.1:8000/openapi.json).paths.PSObject.Properties.Name |
   Select-String '/api/dynamic/tasks/\{task_id\}/timeline'
 ```
 
-## 常用检查
+## Common Checks
 
-后端测试：
+Backend tests:
 
 ```bash
 pytest -q
 ```
 
-ELF 深度分析专项测试：
+ELF deep-analysis test suite:
 
 ```bash
 pytest tests/test_binary_analysis.py -q
 ```
 
-前端构建：
+Frontend build:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-## 关键路径
+## Key Paths
 
-- 数据库：`data/platform.db`
-- 已完成任务归档库：`data/tasks/fs-<task_uuid>.db`、`data/tasks/app-<task_uuid>.db`
-- 后端日志：`logs/backend.log`
-- 前端日志：`logs/frontend.log`
-- 扫描工作目录：`workspace/`
-- 报告输出目录：`workspace/reports/`
-- 本地密钥配置：`.env.local`
+- Database: `data/platform.db`
+- Archived task databases: `data/tasks/fs-<task_uuid>.db`, `data/tasks/app-<task_uuid>.db`
+- Backend log: `logs/backend.log`
+- Frontend log: `logs/frontend.log`
+- Scan workspace: `workspace/`
+- Report output directory: `workspace/reports/`
+- Local secret configuration: `.env.local`
 
-已完成的系统安全或 APP 扫描可在任务列表中主动归档。平台会先生成独立 SQLite 数据库、校验完整性和行数，再释放主库中的完整证据、文件级 AI 结果、检查点及大体积审计上下文；任务和漏洞均保留稳定 UUID，现有数字 ID/API 保持兼容，任务列表、漏洞评审、攻击图和单任务报告仍可透明读取归档结果。归档库不包含用户密码、AI API Key 或其它任务数据，可在任务列表中下载成 `fs-<task_uuid>.db` 或 `app-<task_uuid>.db` 后单独分享。
+Completed system security or APP scans can be archived proactively from the task list. The platform first generates a standalone SQLite database, verifies integrity and row counts, then releases the full evidence, file-level AI results, checkpoints, and bulky audit contexts from the primary database. Tasks and vulnerabilities keep stable UUIDs while existing numeric IDs/APIs remain compatible; the task list, vulnerability review, attack graph, and per-task reports still read archived results transparently. Archive databases contain no user passwords, AI API keys, or data from other tasks, and can be downloaded from the task list as `fs-<task_uuid>.db` or `app-<task_uuid>.db` for separate sharing.
 
-平台启动和任务列表刷新时会自动扫描 `data/tasks/`。将 `fs-<task_uuid>.db` 或 `app-<task_uuid>.db` 放入该目录后，平台会自动把任务、资产占位、漏洞索引和轻量 AI 结论注册到主库；若本机已有相同数字 ID，会自动重映射本地主库和归档库中的任务/漏洞 ID。也可以在系统扫描或 APP 扫描页面点击"导入归档"，选择别人分享的 `.db` 文件，平台会先校验归档类型和 SQLite 完整性，再复制到 `data/tasks/` 并立即加载。移除对应归档文件后，平台会自动清理主库中的挂载任务、漏洞索引和自动创建的归档资产占位。
+On platform startup and task-list refresh, `data/tasks/` is scanned automatically. Placing an `fs-<task_uuid>.db` or `app-<task_uuid>.db` into that directory registers the task, asset placeholders, vulnerability index, and lightweight AI conclusions into the primary database; if a numeric ID already exists locally, the task/vulnerability IDs are remapped automatically in both the local primary database and the archive. You can also click "Import Archive" on the system scan or APP scan page and choose a shared `.db` file — the platform validates the archive type and SQLite integrity first, then copies it into `data/tasks/` and loads it immediately. Removing the corresponding archive file automatically cleans up the mounted task, vulnerability index, and automatically created archive asset placeholders from the primary database.
 
-删除任务会同步清理该任务在受管报告目录中的单任务报告和对应归档数据库。SQLite 空间整理在后台空闲时执行；若仍有扫描运行，会记录待整理状态并在最后一个扫描任务结束后继续。备份平台时应同时备份 `data/platform.db` 和 `data/tasks/`。
+Deleting a task also removes its per-task reports in the managed report directory and its archive database. SQLite space reclamation runs in the background when idle; if scans are still running, a pending state is recorded and reclamation continues after the last scan finishes. When backing up the platform, back up both `data/platform.db` and `data/tasks/`.
 
-Windows 上扫描大型或深层 APK 时，建议把 `config/app_config.yaml` 里的
-`workspace` 配置为短路径，例如 `C:\fs_ws`，并启用 Windows
-`LongPathsEnabled`。如果后端运行在 macOS/Linux，请不要直接填写
-`D:\...` 这类 Windows 盘符路径；请改用后端机器可访问的挂载路径，例如
-WSL/Linux 下的 `/mnt/d/...`。
+On Windows, when scanning large or deeply nested APKs, set the `workspace` value in `config/app_config.yaml` to a short path such as `C:\fs_ws` and enable Windows `LongPathsEnabled`. If the backend runs on macOS/Linux, do not use Windows drive-letter paths like `D:\...`; use a mount path accessible to the backend machine, e.g. `/mnt/d/...` under WSL/Linux.
 
-### 动态验证宿主命令的跨平台行为
+### Cross-Platform Behavior of Dynamic Verification Host Commands
 
-动态验证会把当前宿主系统、CPU 架构、路径分隔符、默认 Shell 和实际可用
-Shell 注入 Executor 上下文。`host_exec` 支持显式选择 `auto`、`cmd`、
-`powershell` 或 `posix`：
+Dynamic verification injects the current host OS, CPU architecture, path separator, default shell, and actually available shells into the Executor context. `host_exec` supports explicitly choosing `auto`, `cmd`, `powershell`, or `posix`:
 
-- Windows 的 `auto` 保持兼容地使用 `cmd.exe`；复杂脚本应选择
-  `powershell`。平台通过显式 argv 启动 Shell，不再依赖 Python
-  `shell=True` 的隐式解释行为。
-- macOS/Linux 的 `auto` 使用 POSIX Shell。只有机器上实际发现
-  `PowerShell/pwsh` 时才允许选择 `powershell`。
-- Agent 不应在 Windows 混用 `ls/grep/sed`、`$VAR`、POSIX 单引号或
-  `/tmp/...`，也不应在 macOS/Linux 使用 `%VAR%`、`dir/findstr` 或盘符路径。
-- 跨平台文件读写优先使用 `read_file`、`write_file`、`edit_file`、
-  `list_files`；确实需要脚本时优先使用已发现的 Python 和工作区相对路径。
-- Frida 使用参数数组直接启动，因此 Windows 工具路径或脚本路径包含空格时
-  不再经过 POSIX 引号拼接。
+- On Windows, `auto` stays compatible by using `cmd.exe`; choose `powershell` for complex scripts. The platform launches shells via explicit argv and no longer relies on Python `shell=True` implicit interpretation.
+- On macOS/Linux, `auto` uses the POSIX shell. `powershell` may only be selected when `PowerShell/pwsh` is actually discovered on the machine.
+- Agents must not mix `ls/grep/sed`, `$VAR`, POSIX single quotes, or `/tmp/...` on Windows, nor use `%VAR%`, `dir/findstr`, or drive-letter paths on macOS/Linux.
+- For cross-platform file I/O, prefer `read_file`, `write_file`, `edit_file`, and `list_files`; when a script is truly needed, prefer the discovered Python interpreter and workspace-relative paths.
+- Frida launches via argument arrays, so Windows tool or script paths containing spaces no longer go through POSIX quote concatenation.
 
-可通过动态设备接口检查后端实际识别的执行环境：
+Use the dynamic device API to inspect the execution environment the backend actually detected:
 
 ```text
 GET /api/dynamic/devices
 ```
 
-响应中的 `host` 字段会给出 `system`、`family`、`machine`、
-`default_shell` 和 `shells`。Windows 部署完成后应至少确认 `cmd` 可用；
-需要 PowerShell 动态脚本时还应确认 `powershell` 出现在 `shells` 中。
+The `host` field in the response reports `system`, `family`, `machine`, `default_shell`, and `shells`. After a Windows deployment, confirm at least that `cmd` is available; if you need PowerShell dynamic scripts, also confirm that `powershell` appears in `shells`.
 
-### 自动压缩后的代码/文本安全续写
+### Safe Code/Text Continuation After Auto-Compaction
 
-Executor 或自由会话触发自动上下文压缩时，平台会为当前任务建立持久化的
-Workspace Resume Checkpoint。检查点记录本周期通过 `read_file`、
-`write_file`、`edit_file` 接触过的文件路径、SHA-256、大小、计划版本、
-最近 ToolRun 和压缩边界；原始步骤和工作区文件不会被摘要替换。
+When the Executor or a free-form session triggers automatic context compaction, the platform creates a persistent Workspace Resume Checkpoint for the current task. The checkpoint records the paths, SHA-256 values, sizes, plan version, latest ToolRun, and compaction boundary of every file touched through `read_file`, `write_file`, or `edit_file` in the current cycle; original steps and workspace files are never replaced by summaries.
 
-压缩后继续写入时执行以下门禁：
+Continuation writes after compaction must pass the following gates:
 
-1. 必须先调用 `workspace_status` 对比检查点和当前工作区。
-2. 修改检查点中的已有文件前必须重新调用 `read_file`。
-3. `write_file` 和 `edit_file` 必须传入读取结果中的 `expected_sha256`；
-   创建新文件时传空字符串。
-4. 文件状态不匹配时返回 `stale_file_state`，要求重新读取，禁止盲目覆盖。
-5. 文本写入使用同目录临时文件、`fsync` 和原子替换；中断不会留下半个目标文件。
-6. `host_exec` 无法静态确定写集合，因此压缩后必须先恢复检查点中的全部已有文件，
-   才允许继续执行。
+1. `workspace_status` must be called first to compare the checkpoint against the current workspace.
+2. Before modifying an existing file recorded in the checkpoint, `read_file` must be called again.
+3. `write_file` and `edit_file` must pass the `expected_sha256` from the read result; pass an empty string when creating a new file.
+4. A file state mismatch returns `stale_file_state`, requiring a re-read; blind overwrites are forbidden.
+5. Text writes use a same-directory temp file, `fsync`, and an atomic rename; an interruption never leaves half of the target file.
+6. `host_exec` cannot statically determine its write set, so after compaction all existing files in the checkpoint must be restored before it may run again.
 
-## 有效漏洞与误报控制
+## Valid Vulnerabilities and False-Positive Control
 
-- 平台使用统一漏洞评级标准 `unified-risk-scoring-v1`。离线规则只负责识别候选文件和候选证据、划分文件风险、提高 AI 送审优先级；规则命中不能直接确认漏洞，也不能直接创建 `needs_confirmation/open/confirmed` 漏洞。系统安全扫描的公开漏洞必须由 AI 文件级复核输出 `confirmed` 并通过平台证据闸门后，才能进入漏洞简介、漏洞清单、评审、报表和看板。最终入库的 `severity`、`risk_score` 由后端统一评分函数计算：规则候选提供本地风险分量，AI 返回的 `risk_level`、`risk_score` 提供模型分量，再按统一等级区间定级。
-- 等级区间固定为：严重 90-100，高危 70-89，中危 40-69，低危 10-39，信息 0-9。同一个任务、同一漏洞、同一证据在重复扫描时必须得到相同等级和分数。
-- 基础分由漏洞类型决定：外部无鉴权命令执行、APK/rootfs 内置真实私钥为严重基线；TLS 证书校验绕过、硬编码可复用密码/Token/API Key、WebView 高危配置为高危基线；组件暴露、明文通信、弱加密、敏感日志、车联网功能攻击面按证据链完整度定级。
-- 加分项固定来自结构化证据：外部可达、鉴权缺失或无效、外部输入到敏感操作的数据流、影响车控/诊断/OTA/系统权限、真实生产凭据或私钥。模型置信度不能替代这些证据。
-- 降级和封顶规则固定：普通 DeepLink、Binder/IPC 或未证明导出缺权限的组件入口仍属于攻击面事实，不进入正式漏洞；证据不完整或量产构建未知进入待补充上下文；公共证书、默认 CA、示例/占位值、debug/demo 专用配置不提升为高风险漏洞。导出组件缺权限的已确认结论缺少完整利用链时最高按中危，不再被压到信息级。
-- APP 扫描会先识别 AI、语音交互、调试测试、工程/诊断和特权车控等高危敏感功能。普通第三方应用的 `exported=true`、隐式导出且未声明 `permission`（或仅 `normal`/`dangerous` 自定义权限）的组件属于可确认的 CWE-926 组件暴露/权限控制缺陷，任意应用都能调用该入口；完整调用链只影响定级，不决定是否成立。Activity/Receiver 通常按低危到中危、Service/Provider 按中危到高危，能证明外部输入到达文件、命令、车控、诊断、录屏、凭据等敏感能力时升级。
-- 平台/厂商系统包（如 `com.qualcomm.qti.*`、`com.android.*`、`sharedUserId=android.uid.system` 等）的 exported 组件仍遵循平台权限模型例外：其访问通常由平台签名权限、特权授权和 SEPolicy 保护，仅凭 Manifest 声明确认前必须基于组件代码证明平台级保护缺失/无效。
-- `sharedUserId` 是车机应用身份上下文，不单独归为漏洞；若其它漏洞成立，只用于评估其影响范围。
-- 系统安全扫描会从 `build.prop` 等属性文件识别 `user`、`userdebug`、`eng`。只有确认是 `user` 量产构建时，才把 ADB/root、`ro.debuggable`、`ro.secure`、SELinux permissive、verity/AVB、test-keys 等构建类型相关安全配置归为漏洞。该策略不豁免硬编码凭据、私钥、弱 TLS、未授权接口或命令执行等独立风险。
-- 系统安全扫描默认不限制 AI 文件数量：所有已枚举且可读取的系统代码、脚本、配置、数据库、日志、证书/密钥和 ELF 结构化证据都会进入 AI 文件级安全分析；攻击面注册表只作为分类、排序、进度和攻击图标签，不作为送审准入、漏洞类型白名单或逐文件检查上限。`.js/.html/.lua` 按当前实测策略默认剔除，仍会在枚举事件中计数说明。
-- 系统与 APP 使用独立提示词；模型结论采用 `confirmed`、`not_a_vulnerability`、`needs_more_context` 三态，并经过原始证据定位、关联文件和平台确定性策略复核。
-- 每个 APP 主文件使用独立、可持久化的 `review_session_id`。同一文件的多轮分析严格串行，不同文件可以并发；下一轮会携带上一轮结构化结论，后端按稳定 `finding_id` 合并，模型后续省略或返回空列表不会覆盖已确认且证据落地的漏洞。
-- 主文件按带重叠和原始行号/offset 的源码块逐段分析，不再在上下文超限时只保留文件头。关联文件优先提取请求 symbol 所在完整方法；提示词再次超限时保留源码首尾、规则/历史证据锚点和历史 finding 账本，完整未压缩状态保存在 APP 检查点中。
-- 每轮结束会持久化结论、完整证据字段、轮次历史、已完成源码块和关联 Artifact 哈希。服务重启或外层重试会恢复同一会话；主文件或任一关联文件哈希变化时旧会话自动失效并重新分析。`error` 检查点保持可重试，只有哈希一致的 `completed` 文件才会断点跳过。
-- 关联文件解析只允许访问当前 APP 任务的 `jadx`、`apktool`、`unzip` 根目录，拒绝模型提供的绝对路径；每条最终 AI 证据绑定真实 `artifact_id`、相对路径、SHA-256 和原始行号，不能把关联类证据错误记到主文件。
-- APP 不再执行扫描前的大模型 Agent 规划，解包和静态候选完成后直接进入逐文件代码分析。文件分析共享进程级全局 AI 并发上限；单任务 worker 只是第二级限制。单次扫描复用网络连接池，超时或取消会等待在途调用结束清理，避免多任务并发放大连接和限流故障。
-- 蓝牙/Wi-Fi/UDS/DoIP 诊断、凭据/密钥、Native/JNI 新增专项候选规则；这些规则只负责定位高风险上下文，仍需完整源码证据、关联文件和 AI 三态结论才能进入最终漏洞报告。
-- 登录、工程模式、工厂模式和诊断入口会确定性检查固定口令直接比较、固定口令哈希比较，以及 PKI/动态密钥失败后的后备认证分支；模型旧格式中明确的 `has_vulnerability=true` 结论仍会进入原始证据定位流程，不再因缺少逐项 `decision` 字段直接丢弃。
-- HTTPS/MQTT/UDS/DoIP/OTA 等协议名称、公共 URL、公共证书和 API 名称只作为上下文候选，不能单独进入漏洞报告。
+- The platform uses the unified vulnerability scoring standard `unified-risk-scoring-v1`. Offline rules only identify candidate files and evidence, grade file risk, and raise AI review priority; a rule hit can neither confirm a vulnerability nor directly create a `needs_confirmation/open/confirmed` record. A public vulnerability from system security scanning must be output as `confirmed` by the AI file-level review and pass the platform evidence gate before it enters vulnerability briefs, lists, reviews, reports, and dashboards. The final stored `severity` and `risk_score` are computed by the backend's unified scoring function: rule candidates provide the local risk component, and the AI-returned `risk_level` / `risk_score` provide the model component, then the fixed band mapping applies.
+- Fixed severity bands: Critical 90-100, High 70-89, Medium 40-69, Low 10-39, Info 0-9. The same task, vulnerability, and evidence must produce the same band and score on repeated scans.
+- Base scores are determined by vulnerability type: externally reachable unauthenticated command execution and real private keys embedded in APK/rootfs form the critical baseline; TLS certificate-validation bypass, hardcoded reusable passwords/Tokens/API keys, and high-risk WebView configurations form the high baseline; component exposure, plaintext communication, weak cryptography, sensitive logging, and IoV feature attack surfaces are graded by evidence-chain completeness.
+- Bonus points come only from structured evidence: external reachability, missing or invalid authentication, data flow from external input to sensitive operations, impact on vehicle control/diagnostics/OTA/system privileges, and real production credentials or private keys. Model confidence cannot substitute for this evidence.
+- Downgrade and capping rules are fixed: ordinary DeepLinks, Binder/IPC, or component entry points not proven to be exported without permission remain attack-surface facts and do not enter formal vulnerabilities; incomplete evidence or unknown production-build status goes to needs-more-context; public certificates, default CAs, example/placeholder values, and debug/demo-only configurations are never promoted to high-risk vulnerabilities. A confirmed exported-component-without-permission finding without a complete exploitation chain is capped at Medium and is no longer pressed down to Info.
+- APP scanning first identifies high-risk sensitive features such as AI, voice interaction, debugging/testing, engineering/diagnostics, and privileged vehicle control. For ordinary third-party apps, components with `exported=true`, implicitly exported, and without a declared `permission` (or only a `normal`/`dangerous` custom permission) constitute a confirmable CWE-926 component-exposure/permission-control defect callable by any app; the complete call chain affects grading, not validity. Activity/Receiver findings typically grade Low to Medium, Service/Provider Medium to High, with escalation when external input is shown to reach files, commands, vehicle control, diagnostics, screen recording, credentials, or other sensitive capabilities.
+- For platform/vendor system packages (e.g. `com.qualcomm.qti.*`, `com.android.*`, `sharedUserId=android.uid.system`), exported components still follow the platform-permission-model exception: their access is usually protected by platform signature permissions, privileged grants, and SEPolicy, so confirmation from the Manifest alone requires component-code proof that platform-level protection is missing or ineffective.
+- `sharedUserId` is IVI app identity context and is not classified as a vulnerability on its own; when another vulnerability is valid, it is only used to assess impact scope.
+- System security scanning identifies `user`, `userdebug`, and `eng` builds from property files such as `build.prop`. Only when the build is confirmed as a `user` production build are build-type-related configurations such as ADB/root, `ro.debuggable`, `ro.secure`, SELinux permissive, verity/AVB, and test-keys classified as vulnerabilities. This policy does not exempt independent risks such as hardcoded credentials, private keys, weak TLS, unauthorized interfaces, or command execution.
+- System security scanning does not limit the number of AI-reviewed files by default: every enumerated, readable system code, script, configuration, database, log, certificate/key, and ELF structured-evidence item enters AI file-level security analysis. The attack-surface registry serves only as classification, ordering, progress, and attack-graph labels — not as review admission, a vulnerability-type whitelist, or a per-file check cap. `.js/.html/.lua` files are excluded by default under the current measured policy, with counts noted in enumeration events.
+- System and APP scans use separate prompts; model conclusions use the three states `confirmed`, `not_a_vulnerability`, and `needs_more_context`, and are re-checked through raw-evidence localization, related files, and deterministic platform policies.
+- Each APP main file uses an independent, persistable `review_session_id`. Multi-round analysis of the same file is strictly serial, while different files run concurrently; each round carries the previous round's structured conclusions, the backend merges by stable `finding_id`, and a model omitting findings or returning an empty list never overwrites already-confirmed vulnerabilities with landed evidence.
+- Main files are analyzed chunk by chunk with overlap and original line numbers/offsets — never reduced to just the file header when the context overflows. Related files preferentially extract the complete method containing the requested symbol; if the prompt overflows again, the source head and tail, rule/history evidence anchors, and the historical finding ledger are preserved, with the full uncompressed state stored in the APP checkpoint.
+- At the end of each round, conclusions, complete evidence fields, round history, completed source chunks, and related artifact hashes are persisted. A service restart or outer retry resumes the same session; if the main file or any related file hash changes, the old session is invalidated and re-analyzed. `error` checkpoints remain retryable, and only `completed` files with matching hashes are skipped at breakpoints.
+- Related-file resolution may only access the `jadx`, `apktool`, and `unzip` roots of the current APP task, rejecting model-supplied absolute paths; every final AI evidence item binds a real `artifact_id`, relative path, SHA-256, and original line number, so related-class evidence is never misattributed to the main file.
+- APP scanning no longer performs pre-scan LLM agent planning; after unpacking and static candidacy, it proceeds directly to file-by-file code analysis. File analysis shares the process-level global AI concurrency cap; the per-task worker is only a second-level limit. A single scan reuses a connection pool, and timeouts or cancellations wait for in-flight calls to finish cleaning up, avoiding amplified connection and rate-limit failures under multi-task concurrency.
+- New dedicated candidate rules cover Bluetooth/Wi-Fi/UDS/DoIP diagnostics, credentials/keys, and Native/JNI; these rules only locate high-risk contexts — complete source evidence, related files, and AI three-state conclusions are still required for the final vulnerability report.
+- Login, engineering-mode, factory-mode, and diagnostic entry points are deterministically checked for fixed-password direct comparison, fixed-password hash comparison, and fallback authentication branches after PKI/dynamic-key failure; explicit `has_vulnerability=true` conclusions in the legacy model format still enter the raw-evidence localization flow and are no longer discarded for lacking per-item `decision` fields.
+- Protocol names such as HTTPS/MQTT/UDS/DoIP/OTA, public URLs, public certificates, and API names are context candidates only and cannot enter the vulnerability report on their own.
 
-## 二进制深度分析
+## Binary Deep Analysis
 
-- 系统安全扫描对 ELF 文件执行结构化静态分析，不再只做字符串提取。分析内容包括：ELF 头/节/段、动态表、导入导出符号、重定位与 PLT 解析、函数边界恢复、危险 API 调用点反汇编、参数回溯、带地址归属的字符串与代码交叉引用、加固姿态（RELRO/NX/PIE/canary/FORTIFY/RPATH）。
-- 全部基于 Python 标准库实现，不需要 IDA、Ghidra、JDK 或任何额外 wheel，macOS/Windows/Linux 行为一致。安装 `capstone` 可让反汇编切片的助记符更完整，但语义事实（调用目标、恢复出的参数、解析出的常量）始终由内置解码器给出，不受可选依赖影响。
-- 支持架构：AArch64、ARM（A32/Thumb-2）、x86-64、i386、MIPS32/64，含大端序与 MIPS 分支延迟槽。
-- 漏洞挖掘覆盖四类：内存安全（栈/堆溢出、格式化字符串、整数溢出、UAF 模式）、命令注入与危险执行、硬编码凭据与密码学误用、车载协议实现安全（UDS/DoIP/SOME-IP/MQTT/CAN）。
-- 分析分阶段执行以控制成本：先解析结构与符号表，仅凭导入表判断是否存在风险类别，只有存在时才扫描代码段。不含危险 API、弱算法、凭据特征和协议符号的二进制自动跳过反汇编，仍保留完整结构证据。
-- 深度 ELF 分析具备安全降级机制。正常情况下 `scan_one_file` 会写入结构化 `binary_analysis` 并把带地址归属的字符串继续送入原有规则引擎；如果未来某个畸形 ELF 或解码器边角触发异常，系统不会让该文件扫描失败，也不会中断任务，而是自动回退到原有 `extract_strings` 路径，并在 `binary_analysis.errors` 中记录降级原因。
-- 调用点只产生"候选点"，不产生漏洞。每个候选点同时携带确认所需的证据链（`confirm_requires`）和判定为非漏洞的常见理由（`benign_if`）。仅出现 `strcpy`、`system`、`MD5` 等符号或调用点，一律不构成漏洞。
-- 内存安全确认必须同时给出目标缓冲区边界依据、写入长度不受该边界限制的依据、以及长度可由外部输入影响的入口，三段缺一即 `needs_more_context`。命令执行必须区分固定常量命令、含 `%s`/`$` 的模板和运行期构造三种情况。凭据常量必须给出引用它的函数与用途。协议识别只作为攻击面事实。
-- 参数回溯跨过跳转目标时标记 `argument_confidence=path_sensitive`，表示所列取值只在其中一条控制流路径上成立；反汇编或字符串提取被预算截断时标记 `truncated`，模型不得声称已覆盖全文件。
-- `_FORTIFY_SOURCE` 包装函数（`__strcpy_chk`、`__sprintf_chk` 等）单独建模：参数位置与原函数不同，且越界后果是进程主动中止而非内存破坏，不按栈溢出定级。
-- 加固属性只影响定级不影响成立。缺少 PIE、RELRO 不完整、无栈保护属于攻击面事实，只有在同一文件已证实可达内存破坏时才作为危害升级依据。
-- 可通过 `config/app_config.yaml` 的 `app.elf_deep_analysis_enabled` 关闭，关闭后回退为原有字符串提取。
-- 可用性回归由 `tests/test_binary_analysis.py` 覆盖，包括结构解析、架构解码、候选点证据、误报闸门、关闭深度分析后的旧路径，以及深度分析异常时自动回退到字符串扫描，确保 ELF 能力不会影响系统安全扫描主流程。
+- System security scanning performs structured static analysis on ELF files instead of mere string extraction. The analysis covers: ELF headers/sections/segments, dynamic tables, imported/exported symbols, relocation and PLT resolution, function-boundary recovery, disassembly of dangerous-API call sites, argument backtracking, address-attributed string and code cross-references, and hardening posture (RELRO/NX/PIE/canary/FORTIFY/RPATH).
+- Implemented entirely on the Python standard library — no IDA, Ghidra, JDK, or extra wheels — with identical behavior on macOS/Windows/Linux. Installing `capstone` yields fuller mnemonics for disassembly slices, but semantic facts (call targets, recovered arguments, resolved constants) always come from the built-in decoders and are unaffected by optional dependencies.
+- Supported architectures: AArch64, ARM (A32/Thumb-2), x86-64, i386, MIPS32/64, including big-endian and MIPS branch delay slots.
+- Vulnerability discovery covers four classes: memory safety (stack/heap overflow, format string, integer overflow, UAF patterns), command injection and dangerous execution, hardcoded credentials and cryptographic misuse, and automotive protocol implementation security (UDS/DoIP/SOME-IP/MQTT/CAN).
+- Analysis runs in cost-controlled stages: structure and symbol tables are parsed first, risk categories are judged from the import table alone, and code sections are scanned only when a category exists. Binaries without dangerous APIs, weak algorithms, credential signatures, or protocol symbols skip disassembly automatically while retaining complete structural evidence.
+- Deep ELF analysis has a safe degradation mechanism. Normally `scan_one_file` writes structured `binary_analysis` and feeds address-attributed strings into the original rule engine; if a malformed ELF or decoder edge case ever raises, the file's scan does not fail and the task is not interrupted — the system automatically falls back to the original `extract_strings` path and records the degradation reason in `binary_analysis.errors`.
+- Call sites only produce "candidate points", never vulnerabilities. Each candidate point carries both the evidence chain required for confirmation (`confirm_requires`) and common reasons it would be benign (`benign_if`). The mere appearance of symbols or call sites such as `strcpy`, `system`, or `MD5` never constitutes a vulnerability.
+- Memory-safety confirmation must simultaneously provide the basis for the target buffer boundary, the basis that the write length is not bounded by it, and an entry point through which the length can be influenced by external input; missing any one of the three yields `needs_more_context`. Command execution must distinguish fixed constant commands, templates containing `%s`/`$`, and runtime-constructed commands. Credential constants must name the referencing function and its purpose. Protocol recognition is only an attack-surface fact.
+- Argument backtracking across jump targets is marked `argument_confidence=path_sensitive`, meaning the listed values hold on only one control-flow path; when disassembly or string extraction is truncated by budget, it is marked `truncated` and the model must not claim full-file coverage.
+- `_FORTIFY_SOURCE` wrapper functions (`__strcpy_chk`, `__sprintf_chk`, etc.) are modeled separately: argument positions differ from the originals, and the out-of-bounds consequence is an active process abort rather than memory corruption, so they are not graded as stack overflows.
+- Hardening attributes affect grading, not validity. Missing PIE, incomplete RELRO, or absent stack protection are attack-surface facts and serve as severity escalators only when reachable memory corruption is already proven in the same file.
+- Can be disabled via `app.elf_deep_analysis_enabled` in `config/app_config.yaml`, falling back to the original string extraction.
+- Usability regression is covered by `tests/test_binary_analysis.py`, including structure parsing, architecture decoding, candidate-point evidence, false-positive gates, the legacy path with deep analysis disabled, and automatic fallback to string scanning when deep analysis raises — ensuring ELF capability never affects the main system security scanning flow.
 
-实现说明、误报闸门清单和测试策略见 [二进制深度分析与 AI 漏洞挖掘](docs/binary-deep-analysis.md)。
+See [Binary Deep Analysis and AI Vulnerability Discovery](docs/binary-deep-analysis.md) for implementation notes, the false-positive gate checklist, and the test strategy.
 
-## 动态验证 Agent 角色与长期闭环
+## Dynamic Verification Agent Roles and the Long-Running Loop
 
-限定漏洞验证按三个逻辑角色执行，角色共享同一任务、模型配置和 AI 并发预算：
+Scoped vulnerability verification runs as three logical roles that share the same task, model configuration, and AI concurrency budget:
 
-1. **Planner / Coordinator**：无工具权限；根据漏洞上下文生成结构化假设、证明义务、依赖、替代路线、预期现象和停止条件。计划以不可变版本持久化，重规划时创建新版本。
-2. **Executor**：唯一拥有工具权限的角色；按计划收集证据并提交候选结论。APP 与固件/系统分别加载 `android_app`、`firmware_system` playbook。
-3. **Evidence Judge**：无工具权限；独立检查候选结论、计划覆盖和真实工具结果，路由到接受、定向补证、重规划或人工阻塞。最终回写建议只来自 accepted 裁决。
+1. **Planner / Coordinator**: no tool permissions; generates structured hypotheses, proof obligations, dependencies, alternative routes, expected observables, and stop conditions from the vulnerability context. Plans are persisted as immutable versions; replanning creates a new version.
+2. **Executor**: the only role with tool permissions; collects evidence per the plan and submits candidate verdicts. APP and firmware/system targets load the `android_app` and `firmware_system` playbooks respectively.
+3. **Evidence Judge**: no tool permissions; independently examines candidate verdicts, plan coverage, and raw tool results, routing to accept, targeted evidence repair, replan, or manual block. Final write-back recommendations come only from accepted rulings.
 
-限定漏洞验证是数据库驱动的循环状态机，而不是一次性模型循环：
+Scoped vulnerability verification is a database-driven loop state machine, not a one-shot model loop:
 
 ```text
 Planner(vN) -> Executor -> Evidence Judge
                          |- accepted -> completed (verified/not_verified)
-                         |- repair_required -> Executor 定向补证
+                         |- repair_required -> Executor targeted evidence repair
                          |- replan_required -> Planner(vN+1)
-                         `- blocked -> manual_required，可新建 cycle 续跑
+                         `- blocked -> manual_required; a new cycle may continue
 ```
 
-正常流程不再以 `inconclusive` 完成。Executor 可以把它作为检查点候选交给 Judge，但 Judge 必须路由到补证、重规划或人工阻塞。`failed` 仅表示平台不变量或内部编排故障。
+The normal flow never completes as `inconclusive`. The Executor may submit it as a checkpoint candidate to the Judge, but the Judge must route to repair, replan, or manual block. `failed` indicates only a platform invariant or internal orchestration fault.
 
-动态验证支持持久化 `Planner → Executor → Evidence Judge` 循环、Judge 定向补证/重规划、24 小时活跃周期、设备断线自动恢复、审批与工具事务恢复，以及同一任务多 cycle 续跑。上下文管理采用权威状态/非权威工作记忆双层模型、85%–95% 渐进压缩、内容寻址 blob、可校验压缩边界、Compactor 熔断和手动 Compact/Snip。
+Dynamic verification supports a persistent `Planner -> Executor -> Evidence Judge` loop, Judge-directed evidence repair/replanning, 24-hour active cycles, automatic device disconnect recovery, approval and tool-transaction recovery, and multi-cycle continuation of the same task. Context management uses a two-layer authoritative-state / non-authoritative-working-memory model, progressive 85%–95% compaction, content-addressed blobs, verifiable compaction boundaries, a Compactor circuit breaker, and manual Compact/Snip.
 
-多 Agent 团队（Agent Teams v2）默认对新建 Cycle 启用持久化专家队列，简单任务无需创建专家，已有 Cycle 的引擎不变。所有角色输入中的漏洞文本、反编译内容、日志和工具输出均按不可信数据处理，不能改变角色职责、执行边界或输出契约。
+Multi-agent teams (Agent Teams v2) enable persistent expert queues by default for newly created cycles; simple tasks need no experts, and existing cycles keep their engines. All vulnerability text, decompiled content, logs, and tool outputs in role inputs are treated as untrusted data and cannot change role responsibilities, execution boundaries, or output contracts.
 
-详细问题、整改项和后续质量门禁见 [系统安全与 APP 安全提示词/Agent 审计报告](docs/security-scan-agent-audit.md) 和 [APP 扫描 AI 并发、多轮上下文整改验收](docs/app-scan-ai-concurrency-audit.md)。
+For detailed issues, remediation items, and follow-up quality gates, see [System Security and APP Security Prompt/Agent Audit Report](docs/security-scan-agent-audit.md) and [APP Scan AI Concurrency and Multi-Round Context Remediation Acceptance](docs/app-scan-ai-concurrency-audit.md).
 
-## 安全说明
+## Security Notes
 
-- `.env.local` 用于保存本地管理员密码、AI API key 和运行配置，禁止提交。
-- 完整证据查看、报告导出、AI 配置、规则修改和用户管理均需要权限。
-- AI 不可用时不会把离线规则命中上报为漏洞；离线规则只作为 AI 候选线索，需恢复 AI 后重新确认。
-- 普通系统安全扫描不会解包 APK；APK 解包和代码分析只在 APP 扫描模块执行。
-- 动态验证的 `autonomous` 权限会直接执行宿主和设备命令，仅面向隔离的测试台架与授权设备使用；所有命令均按非幂等操作串行记入 ToolRun 账本，可审计、可回放。
+- `.env.local` stores the local admin password, AI API key, and runtime configuration; never commit it.
+- Full evidence viewing, report export, AI configuration, rule modification, and user management all require permissions.
+- When AI is unavailable, offline rule hits are never reported as vulnerabilities; offline rules only serve as AI candidate leads and must be re-confirmed after AI recovers.
+- Ordinary system security scans never unpack APKs; APK unpacking and code analysis happen only in the APP scanning module.
+- The `autonomous` permission of dynamic verification executes host and device commands directly and is intended only for isolated test benches and authorized devices; every command is recorded serially in the ToolRun ledger as a non-idempotent operation, auditable and replayable.
