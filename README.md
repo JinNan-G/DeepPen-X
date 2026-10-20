@@ -51,9 +51,7 @@ DeepPen-X（Vehicle AI Security Test Platform）是一套本地部署的车载�
 
 ### APP 扫描与逐文件 AI 复核
 
-（此处插入截图：APP 扫描三态 AI 复核与证据定位）
-
-<!-- ![APP 扫描](docs/screenshots/app-scan.png) -->
+![Uploading image.png…]()
 
 
 ### 三个平面：侦察 / 渗透 / 裁决
